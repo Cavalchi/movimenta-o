@@ -1,0 +1,197 @@
+// esse pequeno código é o trampo que tive para fazer a movimentação do meu objeto no eixo Z se não me engano, a construção dele foi bem complicada, não sou nenhum especialista
+// nenhum genio e muito menos senior em C# na unity, então consequentemente se um senior ver isso vai conseguir reduzir esse código em uns 40% no mínimno (herói dms)
+// é para o seu objeto se movimentar com um deslizante que tem que estar com valor de 0,5
+// o resto é história
+// ele faz basicamente uma movimentação tranquila e suave na movimentação principalmente na troca de valores
+// nada mto bruto, é bem sutil na real
+// sinta-se a vontade para bnrincar com valores
+
+using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.EventSystems;
+public class Movimentação : MonoBehaviour
+{
+    public GameObject objectToMove; // Objeto a ser movido
+    private Vector3 targetLocalPosition; // Posição local alvo do objeto
+    public ARPlacement arPlacement; // Referência a outro script, possivelmente relacionado a colocação em realidade aumentada
+    public Slider slider; // Slider utilizado para controlar o movimento do objeto
+    public float zMin = -50f; // Limite mínimo para a posição Z do objeto
+    public float zMax = 50f; // Limite máximo para a posição Z do objeto
+    public float moveSpeed = 1.1f; // Velocidade de movimento do objeto
+    public float minMoveSpeed = 0.0005f; // Velocidade mínima de movimento do objeto
+    public float maxMoveSpeed = 1.1f; // Velocidade máxima de movimento do objeto
+    public bool ismovimentaçãoPressed = false; // Flag para verificar se o botão de movimento está sendo pressionado
+    private float scaleRatio = 1.0f; // Razão de escala para a velocidade de movimento
+    public bool isMoving = false;
+    public Rotação rotação;
+    private float currentZVelocity; // Velocidade atual da mudança na posição Z
+    public float smoothTime = 1f; // Tempo de suavização para a mudança na posição Z
+    public float currentMoveSpeed; // Velocidade atual de movimento do objeto
+    private float currentMoveSpeedVelocity; // Velocidade atual da mudança na velocidade de movimento
+    public float moveSmoothTime = 0.9f; // Tempo de suavização para a mudança na velocidade de movimento
+    private float currentMoveDirectionVelocity; // Velocidade atual da mudança na direção de movimento do objeto   
+    private float previousSliderValue = 1f; // Valor anterior do deslizante    
+    public float sliderSmoothTime = 0.1f; // Adiciona uma variável para definir o tempo de suavização para a mudança no valor do deslizante
+    private float targetSliderValue = 0.5f; // Adiciona uma variável para armazenar o valor alvo do deslizante
+    public float moveSpeedThreshold = 0.1f; // Adiciona uma variável para definir o limite de velocidade de movimento para considerar que o objeto parou de se mover
+    private float currentSliderVelocity; // Adiciona uma variável para armazenar a velocidade atual da mudança no valor do deslizante
+    public bool isButtonPressed;
+    public bool isSliderBeingDragged = false;
+    public bool shouldMove = true; // Adiciona a variável shouldMove
+    public bool shouldResetSlider = false;
+    public GameObject button; // Referência ao botão que deseja verificar
+    private bool isButtonTouched = false; // Variável de sinalização para rastrear se o botão está sendo tocado ou não
+    public bool shouldStopRotation = false;
+    public float desiredMoveSpeed;
+    public bool isDecelerating = false;
+    private float velocity = 0.0f;    void Start()
+    {
+        objectToMove = arPlacement.spawnedObject; // Define o objeto a ser movido como o objeto spawnado pelo script de ARPlacement
+        slider.value = 0.5f; // Inicializa o valor do slider como 0.5 (valor médio)
+        slider.onValueChanged.AddListener(OnSliderValueChanged); // Adiciona um ouvinte de evento para quando o valor do slider mudar
+        EventTrigger trigger = slider.gameObject.AddComponent<EventTrigger>(); // Adiciona um trigger de evento ao objeto do slider
+        EventTrigger.Entry entry = new EventTrigger.Entry(); // Cria uma entrada de evento
+        entry.eventID = EventTriggerType.EndDrag; // Define o tipo de evento como EndDrag (quando o usuário solta o dedo do slider)
+        trigger.triggers.Add(entry); // Adiciona a entrada de evento ao trigger do slider
+        rotação.movimentação = this; // Atribui a referência do MovButtonScript ao SideButtonSript
+        EventTrigger.Entry pointerDownEntry = new EventTrigger.Entry();
+        pointerDownEntry.eventID = EventTriggerType.PointerDown;
+        pointerDownEntry.callback.AddListener((data) => { OnPointerDown((PointerEventData)data); });// Adiciona a entrada de evento ao trigger do botão
+        trigger.triggers.Add(pointerDownEntry);// Cria uma entrada de evento para o evento PointerUp
+        EventTrigger.Entry pointerUpEntry = new EventTrigger.Entry();
+        pointerUpEntry.eventID = EventTriggerType.PointerUp;
+        pointerUpEntry.callback.AddListener((data) => { OnPointerUp((PointerEventData)data); });// Adiciona a entrada de evento ao trigger do botão
+        trigger.triggers.Add(pointerUpEntry);  // Define o tipo de evento como EndDrag (quando o usuário solta o dedo do slider)
+        entry.eventID = EventTriggerType.EndDrag; // Adiciona um callback para o evento EndDrag que chama o método OnEndDrag                                                 
+        slider.onValueChanged.AddListener(OnSliderValueChanged);
+    }
+    public void OnSliderValueChanged(float value)
+    {
+        {
+            float distanceToMid = Mathf.Abs(value - 0.5f);
+            moveSpeed = 1.5f * maxMoveSpeed * distanceToMid;
+            if (value <= 0.49f && value >= 0.51f)
+            {
+                desiredMoveSpeed = 0f; // Sem movimento
+            }
+            else
+            {
+                float t = Mathf.InverseLerp(0.5f, (value > 0.5f) ? 0.4f : 0.51f, value);
+                float acceleration = (value > 0.5f) ? -moveSpeed : moveSpeed;
+                desiredMoveSpeed = Mathf.SmoothStep(0f, acceleration, t);
+                isDecelerating = true;
+            }
+          
+        }
+    }
+ 
+    void Update()
+    {
+        if (previousSliderValue < 0.49f && slider.value > 0.51f ||
+        previousSliderValue > 0.51f && slider.value < 0.49f)
+        {
+            float newPos = Mathf.SmoothDamp(previousSliderValue, slider.value, ref velocity, smoothTime = 3f);
+            // Aplicar newPos à posição do objeto aqui
+            previousSliderValue = newPos;
+        }
+        if (isDecelerating)
+        {
+            float targetSpeed = 0f;
+            currentMoveSpeed = Mathf.SmoothDamp(currentMoveSpeed, targetSpeed, ref currentMoveSpeedVelocity, moveSmoothTime);
+            if (currentMoveSpeed == targetSpeed)
+            {
+                isDecelerating = false;
+            }
+        }
+        if (isButtonTouched)
+        {
+            objectToMove = arPlacement.spawnedObject;
+        }
+        else
+        {
+            slider.value = Mathf.SmoothDamp(slider.value, targetSliderValue, ref currentSliderVelocity, sliderSmoothTime);
+            rotação.shouldStopRotation = true;
+        }
+        if (slider.value == 0.5f)
+        {
+            shouldStopRotation = true;
+            slider.value = 0.5f;
+        }
+        else if (slider.value == 0.6f || slider.value == 0.4f)
+        {
+            shouldStopRotation = false;
+        }
+        else
+        {
+            shouldStopRotation = false;
+        }
+        float sliderValue = slider.value;
+        Vector3 moveDirection = (sliderValue - 0.5f) * 2f * Vector3.right;
+        if (!ismovimentaçãoPressed || moveDirection.x > 0 && objectToMove.transform.localPosition.x >= zMax || moveDirection.x < 0 && objectToMove.transform.localPosition.x <= zMin)
+        {
+            currentMoveSpeed = Mathf.SmoothDamp(currentMoveSpeed, 0, ref currentMoveSpeedVelocity, moveSmoothTime);
+        }
+        else
+        {
+            currentMoveSpeed = Mathf.SmoothDamp(currentMoveSpeed, moveSpeed, ref currentMoveSpeedVelocity, moveSmoothTime);
+        }
+        objectToMove.transform.Translate(currentMoveSpeed * Time.deltaTime * moveDirection);
+        if (Input.GetMouseButtonDown(0))
+        {
+            isSliderBeingDragged = true;
+        }
+        if (Input.GetMouseButtonUp(0))
+        {
+            isSliderBeingDragged = false;
+            targetSliderValue = 0.5f;
+        }
+        scaleRatio = objectToMove.transform.localScale.magnitude;
+        objectToMove.transform.Translate(currentMoveSpeed * scaleRatio * Time.deltaTime * moveDirection);
+        if (!ismovimentaçãoPressed)
+        {
+            currentMoveDirectionVelocity = Mathf.SmoothDamp(currentMoveDirectionVelocity, 0, ref currentMoveSpeedVelocity, moveSmoothTime);
+        }
+        //slider.value = 0.5f;  
+        if (Mathf.Abs(slider.value - 0.5f) <= 0.01f)
+        {
+            slider.value = 0.5f;
+        }
+    }
+    public void OnrotaçãoSliderLimitReached()
+    {
+        // Verifica a posição do deslizante e ajusta o movimento do objeto de acordo
+        if (rotação.slider.value == rotação.zMin)
+        {
+            // Reduz a velocidade de movimento
+            moveSpeed = 1;
+        }
+        else if (rotação.slider.value == rotação.zMax)
+        {
+            // Aumenta a velocidade de movimento
+            moveSpeed = 1;
+        }
+    }
+    public void OnPointerDown(PointerEventData eventData)
+    {
+        ismovimentaçãoPressed = true;
+        rotação.isRotateButtonPressed = true; // Atualiza o estado do botão de rotação
+        isButtonTouched = true;
+        isSliderBeingDragged = true;
+        // Atualiza o valor do controle deslizante com base no valor do controle deslizante no script Rotação
+    }
+    public void OnPointerUp(PointerEventData eventData)
+    {
+        ismovimentaçãoPressed = false;
+        rotação.isRotateButtonPressed = false; // Atualiza o estado do botão de rotação
+        isButtonTouched = false;
+        isSliderBeingDragged = false;
+    }
+    public void OnButtonDown()
+    {
+        isButtonPressed = true; // Define isButtonPressed como true quando o botão for pressionadoo
+    }
+    public void OnButtonUp()
+    {
+        isButtonPressed = false; // Define isButtonPressed como false quando o botão for solto
+    }
+}
